@@ -52,7 +52,15 @@ end
 -- build function table
 local function_names = extract_function_names(MINMAX_h)
 
-THNN.kernels['torch.CudaTensor'] = THNN.bind(MINMAX.C, function_names, 'Cuda', MINMAX.getState)
-torch.getmetatable('torch.CudaTensor').THNN = THNN.kernels['torch.CudaTensor']
+local function insert_functions(t, functions)
+   for name,func in pairs(functions) do
+      t[name] = func
+   end
+end
+
+functions = THNN.bind(MINMAX.C, function_names, 'Cuda', MINMAX.getState)
+
+insert_functions(THNN.kernels['torch.CudaTensor'], functions)
+insert_functions(torch.getmetatable('torch.CudaTensor').THNN, functions)
 
 return MINMAX
