@@ -52,7 +52,7 @@ __global__ void cuda_MinMaxPooling_updateOutput(
                 float val = input[slice][iFrame + frame][iRow + row][iColumn + column];
                 float threshold = thresholds[frame];
 
-                if (val >= threshold)
+                if (val >= threshold || frame == kT-1)
                 {
                   min = val;
                   minColumn = column;
@@ -151,7 +151,7 @@ __global__ void cuda_MinMaxPooling_updateOutput(
                 float val = input[slice][iFrame + frame][iRow + row][iColumn + column];
                 float threshold = thresholds[frame];
 
-                if (val >= threshold)
+                if (val >= threshold || frame == kT-1)
                 {
                   min = val;
                   minColumn = column;
@@ -319,29 +319,27 @@ void THNN_CudaMinMaxPooling_updateOutput(
 
   input = THCudaTensor_newContiguous(state, input);
 
-  // Clear mask
-  THCudaTensor_zero(state, mask);
-
   // Collapse batch and feature dimensions
   THCDeviceTensor<float, 4> cudaInput;
   THCDeviceTensor<float, 1> cudaThresholds;
-  THCDeviceTensor<float, 4> cudaMask;
+  // THCDeviceTensor<float, 4> cudaMask;
   THCDeviceTensor<float, 4> cudaOutput;
   if (THCudaTensor_nDimension(state, input) == 4)
   {
     cudaInput  = toDeviceTensor<float, 4>(state, input);
     cudaThresholds = toDeviceTensor<float, 1>(state, thresholds);
-    cudaMask   = toDeviceTensor<float, 4>(state, mask);
+    // cudaMask   = toDeviceTensor<float, 4>(state, mask);
     cudaOutput = toDeviceTensor<float, 4>(state, output);
   }
   else
   {
     cudaInput  = toDeviceTensor<float, 5>(state, input).downcastOuter<4>();
     cudaThresholds = toDeviceTensor<float, 1>(state, thresholds);
-    cudaMask   = toDeviceTensor<float, 5>(state, mask).downcastOuter<4>();
+    // cudaMask   = toDeviceTensor<float, 5>(state, mask).downcastOuter<4>();
     cudaOutput = toDeviceTensor<float, 5>(state, output).downcastOuter<4>();
   }
 
+  // copy indices tensor
   THLongStorage *indicesSize = THLongStorage_newWithSize(4);
   long indicesSizeRaw[4] = { batchSize * inputSlices,
                             outputTime, outputHeight, outputWidth };
@@ -356,6 +354,22 @@ void THNN_CudaMinMaxPooling_updateOutput(
 
   THCDeviceTensor<float, 4> cudaIndices =
     toDeviceTensor<float, 4>(state, indices1);
+
+  // copy mask tensor
+  THLongStorage *maskSize = THLongStorage_newWithSize(4);
+  long maskSizeRaw[4] = { batchSize * inputSlices,
+                           inputTime, inputHeight, inputWidth };
+  THLongStorage_rawCopy(maskSize, maskSizeRaw);
+  THCudaTensor *mask1 = THCudaTensor_newWithStorage(
+    state, THCudaTensor_storage(state, mask),
+    THCudaTensor_storageOffset(state, mask), maskSize, NULL);
+  THLongStorage_free(maskSize);
+
+  // Clear mask
+  THCudaTensor_zero(state, mask1);
+
+  THCDeviceTensor<float, 4> cudaMask =
+    toDeviceTensor<float, 4>(state, mask1);
 
   dim3 block(32, 8);
   dim3 grid(THCCeilDiv(outputWidth, static_cast<int>(block.x)),
@@ -379,6 +393,7 @@ void THNN_CudaMinMaxPooling_updateOutput(
 
   THCudaTensor_free(state, input);
   THCudaTensor_free(state, indices1);
+  THCudaTensor_free(state, mask1);
 }
 
 #undef UPDATE_OUTPUT_KERNEL_WIDTH
@@ -402,10 +417,10 @@ __global__ void cuda_MinMaxPooling_updateGradInput(
     int iFrame  = ((unsigned char*)(idx))[0] + oFrame  * dT - padT;
     int iRow    = ((unsigned char*)(idx))[1] + oRow    * dH - padH;
     int iColumn = ((unsigned char*)(idx))[2] + oColumn * dW - padW;
-    float maskval = mask[slice][iFrame][iRow][iColumn];
-    float maskedGradOutput = gradOutput[slice][oFrame][oRow][oColumn]*maskval;
+    //float maskval = mask[slice][iFrame][iRow][iColumn];
+    //float maskedGradOutput = gradOutput[slice][oFrame][oRow][oColumn]*maskval;
     atomicAdd(&gradInput[slice][iFrame][iRow][iColumn],
-              maskedGradOutput);
+              gradOutput[slice][oFrame][oRow][oColumn]);
   }
 }
 
@@ -423,6 +438,9 @@ void THNN_CudaMinMaxPooling_updateGradInput(
 
   int batchSize;
   int inputSlices;
+  int inputTime;
+  int inputHeight;
+  int inputWidth;
 
   int outputTime;
   int outputHeight;
@@ -434,6 +452,9 @@ void THNN_CudaMinMaxPooling_updateGradInput(
   {
     batchSize = 1;
     inputSlices  = THCudaTensor_size(state, input, 0);
+    inputTime   = THCudaTensor_size(state, input, 1);
+    inputHeight = THCudaTensor_size(state, input, 2);
+    inputWidth  = THCudaTensor_size(state, input, 3);
 
     outputTime   = THCudaTensor_size(state, gradOutput, 1);
     outputHeight = THCudaTensor_size(state, gradOutput, 2);
@@ -443,6 +464,9 @@ void THNN_CudaMinMaxPooling_updateGradInput(
   {
     batchSize    = THCudaTensor_size(state, input, 0);
     inputSlices  = THCudaTensor_size(state, input, 1);
+    inputTime   = THCudaTensor_size(state, input, 2);
+    inputHeight = THCudaTensor_size(state, input, 3);
+    inputWidth  = THCudaTensor_size(state, input, 4);
 
     outputTime   = THCudaTensor_size(state, gradOutput, 2);
     outputHeight = THCudaTensor_size(state, gradOutput, 3);
@@ -453,24 +477,25 @@ void THNN_CudaMinMaxPooling_updateGradInput(
 
   // Collapse batch and feature dimensions
   THCDeviceTensor<float, 4> cudaGradInput;
-  THCDeviceTensor<float, 4> cudaMask;
+  // THCDeviceTensor<float, 4> cudaMask;
   THCDeviceTensor<float, 4> cudaGradOutput;
   if (THCudaTensor_nDimension(state, input) == 4)
   {
     cudaGradInput  = toDeviceTensor<float, 4>(state, gradInput);
-    cudaMask       = toDeviceTensor<float, 4>(state, mask);
+    // cudaMask       = toDeviceTensor<float, 4>(state, mask);
     cudaGradOutput = toDeviceTensor<float, 4>(state, gradOutput);
   }
   else
   {
     cudaGradInput =
       toDeviceTensor<float, 5>(state, gradInput).downcastOuter<4>();
-    cudaMask =
-      toDeviceTensor<float, 5>(state, mask).downcastOuter<4>();
+    // cudaMask =
+    //   toDeviceTensor<float, 5>(state, mask).downcastOuter<4>();
     cudaGradOutput =
       toDeviceTensor<float, 5>(state, gradOutput).downcastOuter<4>();
   }
 
+  // copy indices tensor
   THLongStorage *indicesSize = THLongStorage_newWithSize(4);
   long indicesSizeRaw[4] = { batchSize * inputSlices,
                            outputTime, outputHeight, outputWidth };
@@ -482,6 +507,19 @@ void THNN_CudaMinMaxPooling_updateGradInput(
 
   THCDeviceTensor<float, 4> cudaIndices =
     toDeviceTensor<float, 4>(state, indices1);
+
+  // copy mask tensor
+  THLongStorage *maskSize = THLongStorage_newWithSize(4);
+  long maskSizeRaw[4] = { batchSize * inputSlices,
+                           inputTime, inputHeight, inputWidth };
+  THLongStorage_rawCopy(maskSize, maskSizeRaw);
+  THCudaTensor *mask1 = THCudaTensor_newWithStorage(
+    state, THCudaTensor_storage(state, mask),
+    THCudaTensor_storageOffset(state, mask), maskSize, NULL);
+  THLongStorage_free(maskSize);
+
+  THCDeviceTensor<float, 4> cudaMask =
+    toDeviceTensor<float, 4>(state, mask1);
 
   dim3 block(32, 8);
   dim3 grid(THCCeilDiv(outputWidth, static_cast<int>(block.x)),
@@ -500,4 +538,5 @@ void THNN_CudaMinMaxPooling_updateGradInput(
   // cleanup
   THCudaTensor_free(state, gradOutput);
   THCudaTensor_free(state, indices1);
+  THCudaTensor_free(state, mask1);
 }
