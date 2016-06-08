@@ -1,23 +1,28 @@
 local MinMaxPooling, parent = torch.class('nn.MinMaxPooling', 'nn.Module')
-function MinMaxPooling:__init(thresholds, kT, kW, kH, dT, dW, dH, padT, padW, padH)
-   parent.__init(self)
+function MinMaxPooling:__init(thresholds, gamma, kT, kW, kH, dT, dW, dH, padT, padW, padH)
+  parent.__init(self)
 
-   dT = dT or kT
-   dW = dW or kW
-   dH = dH or kH
+  assert(#thresholds == 2 and 
+    type(thresholds[1]) == 'table' and 
+    type(thresholds[2]) == 'table' and 
+    #thresholds[1] == #thresholds[2])
 
-   self.kT = kT
-   self.kH = kH
-   self.kW = kW
-   self.dT = dT
-   self.dW = dW
-   self.dH = dH
+  dT = dT or kT
+  dW = dW or kW
+  dH = dH or kH
 
-   self.padT = padT or 0
-   self.padW = padW or 0
-   self.padH = padH or 0
+  self.kT = kT
+  self.kH = kH
+  self.kW = kW
+  self.dT = dT
+  self.dW = dW
+  self.dH = dH
 
+  self.padT = padT or 0
+  self.padW = padW or 0
+  self.padH = padH or 0
 
+  self.gamma = gamma
   self.thresholds = torch.Tensor(thresholds)
   self.mask = torch.Tensor()
   self.indices = torch.Tensor()
@@ -71,18 +76,20 @@ end
 function MinMaxPooling:updateOutput(input)
   --print(input:size(), input:size(self.dimension))
 
-  assert(input:size(self.dimension) == self.thresholds:size(1))
+  assert(input:size(self.dimension) == self.thresholds:size(2))
 
   self:_lazyInit(input)
 
   -- only update mean, std and thresholds during training
   if self.train then
     self:updateMeanStd(input)
-    self.thresholds = self.running_mean - 2*self.running_std
+    self.thresholds[1] = self.running_mean - self.gamma*self.running_std
+    self.thresholds[2] = self.running_mean + self.gamma*self.running_std
   end
 
   self.indices = self.indices or input.new()
   self.mask = self.mask or input.new()
+
   input.THNN.MinMaxPooling_updateOutput(
     input:cdata(),
     self.thresholds:cdata(),
