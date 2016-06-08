@@ -8,7 +8,7 @@
 
 __global__ void cuda_MinMaxPooling_updateOutput(
   THCDeviceTensor<float, 4> input,
-  THCDeviceTensor<float, 1> thresholds,
+  THCDeviceTensor<float, 2> thresholds,
   THCDeviceTensor<float, 4> mask,
   THCDeviceTensor<float, 4> indices,
   THCDeviceTensor<float, 4> output,
@@ -50,9 +50,10 @@ __global__ void cuda_MinMaxPooling_updateOutput(
               if (iColumn + column < input.getSize(3) && iColumn + column >= 0)
               {
                 float val = input[slice][iFrame + frame][iRow + row][iColumn + column];
-                float threshold = thresholds[frame];
+                float threshold_lower = thresholds[0][frame];
+                float threshold_upper = thresholds[1][frame];
 
-                if (val >= threshold || frame == kT-1)
+                if ( val < threshold_lower || val > threshold_upper || frame == kT-1)
                 {
                   min = val;
                   minColumn = column;
@@ -107,7 +108,7 @@ __global__ void cuda_MinMaxPooling_updateOutput(
 template <int KERNEL_WIDTH>
 __global__ void cuda_MinMaxPooling_updateOutput(
   THCDeviceTensor<float, 4> input, 
-  THCDeviceTensor<float, 1> thresholds, 
+  THCDeviceTensor<float, 2> thresholds, 
   THCDeviceTensor<float, 4> mask,
   THCDeviceTensor<float, 4> indices,
   THCDeviceTensor<float, 4> output,
@@ -149,9 +150,10 @@ __global__ void cuda_MinMaxPooling_updateOutput(
               if (iColumn + column < input.getSize(3) && iColumn + column >= 0)
               {
                 float val = input[slice][iFrame + frame][iRow + row][iColumn + column];
-                float threshold = thresholds[frame];
+                float threshold_lower = thresholds[0][frame];
+                float threshold_upper = thresholds[1][frame];
 
-                if (val >= threshold || frame == kT-1)
+                if ( val < threshold_lower || val > threshold_upper || frame == kT-1)
                 {
                   min = val;
                   minColumn = column;
@@ -321,20 +323,20 @@ void THNN_CudaMinMaxPooling_updateOutput(
 
   // Collapse batch and feature dimensions
   THCDeviceTensor<float, 4> cudaInput;
-  THCDeviceTensor<float, 1> cudaThresholds;
+  THCDeviceTensor<float, 2> cudaThresholds;
   // THCDeviceTensor<float, 4> cudaMask;
   THCDeviceTensor<float, 4> cudaOutput;
   if (THCudaTensor_nDimension(state, input) == 4)
   {
     cudaInput  = toDeviceTensor<float, 4>(state, input);
-    cudaThresholds = toDeviceTensor<float, 1>(state, thresholds);
+    cudaThresholds = toDeviceTensor<float, 2>(state, thresholds);
     // cudaMask   = toDeviceTensor<float, 4>(state, mask);
     cudaOutput = toDeviceTensor<float, 4>(state, output);
   }
   else
   {
     cudaInput  = toDeviceTensor<float, 5>(state, input).downcastOuter<4>();
-    cudaThresholds = toDeviceTensor<float, 1>(state, thresholds);
+    cudaThresholds = toDeviceTensor<float, 2>(state, thresholds);
     // cudaMask   = toDeviceTensor<float, 5>(state, mask).downcastOuter<4>();
     cudaOutput = toDeviceTensor<float, 5>(state, output).downcastOuter<4>();
   }
