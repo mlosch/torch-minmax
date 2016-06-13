@@ -18,7 +18,7 @@ TH_API void THNN_CudaMinMaxPooling_updateOutput(
   			bool ceilMode);
 TH_API void THNN_CudaMinMaxPooling_updateGradInput(
   THCState *state, 
-  THCudaTensor *input, THCudaTensor *mask, 
+  THCudaTensor *input,
   THCudaTensor *gradOutput, THCudaTensor *gradInput,
   THCudaTensor *indices,
   int dT, int dW, int dH,

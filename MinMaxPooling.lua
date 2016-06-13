@@ -109,7 +109,15 @@ function MinMaxPooling:updateOutput(input)
 
   self.indices = self.indices or input.new()
   self.mask = self.mask or input.new()
-  self.mask:fill(0)
+
+  -- local oF = math.floor((input:size(2) - self.kT + 2*self.padT) / self.dT) + 1
+  -- local oH = math.floor((input:size(3) - self.kH + 2*self.padH) / self.dH) + 1
+  -- local oW = math.floor((input:size(4) - self.kW + 2*self.padW) / self.dW) + 1
+
+  -- self.mask = self.mask:resize(input:size(1),oF,oH,oW)
+  -- self.mask:uniform(0,self.kT-1.000001):floor()
+  -- assert(self.mask:lt(0):sum() == 0 and self.mask:gt(3):sum() == 0)
+  -- assert(self.mask:isContiguous())
 
   input.THNN.MinMaxPooling_updateOutput(
     input:cdata(),
@@ -130,7 +138,6 @@ end
 function MinMaxPooling:updateGradInput(input, gradOutput)
   input.THNN.MinMaxPooling_updateGradInput(
     input:cdata(),
-    self.mask:cdata(),
     gradOutput:cdata(),
     self.gradInput:cdata(),
     self.indices:cdata(),
