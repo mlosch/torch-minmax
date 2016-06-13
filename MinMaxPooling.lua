@@ -109,6 +109,7 @@ function MinMaxPooling:updateOutput(input)
 
   self.indices = self.indices or input.new()
   self.mask = self.mask or input.new()
+  self.mask:fill(0)
 
   input.THNN.MinMaxPooling_updateOutput(
     input:cdata(),

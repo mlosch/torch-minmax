@@ -5,8 +5,18 @@
 #include "THCDeviceUtils.cuh"
 
 #include <cfloat>
+#include <math.h>
+#include <curand.h>
+#include <curand_kernel.h>
+
+__global__ void setup_rand_kernel(curandState *state)
+{
+  int idx = threadIdx.x+blockDim.x*blockIdx.x;
+  curand_init(1234, idx, 0, &state[idx]);
+}
 
 __global__ void cuda_MinMaxPooling_updateOutput(
+  curandState *rand_state,
   THCDeviceTensor<float, 4> input,
   THCDeviceTensor<float, 2> thresholds,
   THCDeviceTensor<float, 4> mask,
@@ -21,92 +31,32 @@ __global__ void cuda_MinMaxPooling_updateOutput(
   int oFrame  = blockIdx.z % output.getSize(1); // output frame/time
   int slice   = blockIdx.z / output.getSize(1); // output slice/feature
 
+  int idx = threadIdx.x + blockDim.x*blockIdx.x;
+  float randf = curand_uniform(rand_state+idx);
+  randf *= (kT-1 +0.999999);
+  int frame = (int)truncf(randf);
+
   if (oRow < output.getSize(2) && oColumn < output.getSize(3))
   {
     int iColumn = oColumn * dW - padW;
     int iRow    = oRow    * dH - padH;
     int iFrame  = oFrame  * dT - padT;
 
-    int minColumn = 0;
-    int minRow = 0;
-    int minFrame = 0;
-
-    int miniColumn = 0;
-    int miniRow = 0;
-    int miniFrame = 0;
-
-    float min = FLT_MAX;
-
-    for (int frame = 0; frame < kT; ++frame)
-    {
-      if (iFrame + frame < input.getSize(1) && iFrame + frame >= 0)
-      {
-        for (int row = 0; row < kH; ++row)
-        {
-          if (iRow + row < input.getSize(2) && iRow + row >= 0)
-          {
-            for (int column = 0; column < kW; ++column)
-            {
-              if (iColumn + column < input.getSize(3) && iColumn + column >= 0)
-              {
-                float val = input[slice][iFrame + frame][iRow + row][iColumn + column];
-                float threshold_lower = thresholds[0][frame];
-                float threshold_upper = thresholds[1][frame];
-
-                if ( val < threshold_lower || val > threshold_upper || frame == kT-1)
-                {
-                  min = val;
-                  minColumn = column;
-                  minRow    = row;
-                  minFrame  = frame;
-
-                  miniColumn = iColumn + column;
-                  miniRow = iRow + row;
-                  miniFrame = iFrame + frame;
-                  break;
-                }
-              }
-            }
-
-            if (min < FLT_MAX) 
-            {
-              break;
-            }
-          }
-        }
-
-        if (min < FLT_MAX)
-        {
-          break;
-        }
-      }
-    }
-
-    if (min == FLT_MAX)
-    {
-      min = 0;
-    }
-
-    output[slice][oFrame][oRow][oColumn] = min;
-    if (min == 0)
-    {
-      mask[slice][miniFrame][miniRow][miniColumn] = 0.0;
-    }
-    else
-    {
-      mask[slice][miniFrame][miniRow][miniColumn] = 1.0;
-    }
+    float val = input[slice][iFrame + frame][iRow][iColumn];
+    output[slice][oFrame][oRow][oColumn] = val;
+    mask[slice][iFrame + frame][iRow][iColumn] = 1;
 
     float *idx = &indices[slice][oFrame][oRow][oColumn];
-    ((unsigned char*)(idx))[0] = minFrame;
-    ((unsigned char*)(idx))[1] = minRow;
-    ((unsigned char*)(idx))[2] = minColumn;
+    ((unsigned char*)(idx))[0] = frame;
+    ((unsigned char*)(idx))[1] = 0;
+    ((unsigned char*)(idx))[2] = 0;
     ((unsigned char*)(idx))[3] = 0;
   }
 }
 
 template <int KERNEL_WIDTH>
 __global__ void cuda_MinMaxPooling_updateOutput(
+  curandState *rand_state,
   THCDeviceTensor<float, 4> input, 
   THCDeviceTensor<float, 2> thresholds, 
   THCDeviceTensor<float, 4> mask,
@@ -121,94 +71,33 @@ __global__ void cuda_MinMaxPooling_updateOutput(
   int oFrame  = blockIdx.z % output.getSize(1); // output frame/time
   int slice   = blockIdx.z / output.getSize(1); // output slice/feature
 
+  int idx = threadIdx.x + blockDim.x*blockIdx.x;
+  float randf = curand_uniform(rand_state+idx);
+  randf *= (kT-1 +0.999999);
+  int frame = (int)truncf(randf);
+
   if (oRow < output.getSize(2) && oColumn < output.getSize(3))
   {
     int iColumn = oColumn * dW - padW;
     int iRow    = oRow    * dH - padH;
     int iFrame  = oFrame  * dT - padT;
 
-    int minColumn = 0;
-    int minRow = 0;
-    int minFrame;
-
-    int miniColumn = 0;
-    int miniRow = 0;
-    int miniFrame = 0;
-
-    float min = FLT_MAX;
-
-    for (int frame = 0; frame < kT; ++frame)
-    {
-      if (iFrame + frame < input.getSize(1) && iFrame + frame >= 0)
-      {
-        for (int row = 0; row < kH; ++row)
-        {
-          if (iRow + row < input.getSize(2) && iRow + row >= 0)
-          {
-            for (int column = 0; column < KERNEL_WIDTH; ++column)
-            {
-              if (iColumn + column < input.getSize(3) && iColumn + column >= 0)
-              {
-                float val = input[slice][iFrame + frame][iRow + row][iColumn + column];
-                float threshold_lower = thresholds[0][frame];
-                float threshold_upper = thresholds[1][frame];
-
-                if ( val < threshold_lower || val > threshold_upper || frame == kT-1)
-                {
-                  min = val;
-                  minColumn = column;
-                  minRow    = row;
-                  minFrame  = frame;
-
-                  miniColumn = iColumn + column;
-                  miniRow = iRow + row;
-                  miniFrame = iFrame + frame;
-                  break;
-                }
-              }
-            }
-
-            if (min < FLT_MAX) 
-            {
-              break;
-            }
-          }
-        }
-
-        if (min < FLT_MAX)
-        {
-          break;
-        }
-      }
-    }
-
-    if (min == FLT_MAX)
-    {
-      min = 0;
-    }
-
-    output[slice][oFrame][oRow][oColumn] = min;
-    if (min == 0)
-    {
-      mask[slice][miniFrame][miniRow][miniColumn] = 0.0;
-    }
-    else
-    {
-      mask[slice][miniFrame][miniRow][miniColumn] = 1.0;
-    }
+    float val = input[slice][iFrame + frame][iRow][iColumn];
+    output[slice][oFrame][oRow][oColumn] = val;
+    mask[slice][iFrame + frame][iRow][iColumn] = 1;
 
     float *idx = &indices[slice][oFrame][oRow][oColumn];
-    ((unsigned char*)(idx))[0] = minFrame;
-    ((unsigned char*)(idx))[1] = minRow;
-    ((unsigned char*)(idx))[2] = minColumn;
+    ((unsigned char*)(idx))[0] = frame;
+    ((unsigned char*)(idx))[1] = 0;
+    ((unsigned char*)(idx))[2] = 0;
     ((unsigned char*)(idx))[3] = 0;
   }
 }
 
 #define UPDATE_OUTPUT_KERNEL_WIDTH(KW) case KW:                                   \
-  cuda_MinMaxPooling_updateOutput<KW><<<grid, block,                       \
-                                0, THCState_getCurrentStream(state)>>>(           \
-      cudaInput, cudaThresholds, cudaMask, cudaIndices, cudaOutput, kT, kH, dT, dH, dW, padT, padH, padW);  \
+  cuda_MinMaxPooling_updateOutput<KW><<<grid, block, 0, THCState_getCurrentStream(state)>>>(\
+      rand_state, cudaInput, cudaThresholds, cudaMask, cudaIndices, cudaOutput, \
+      kT, kH, dT, dH, dW, padT, padH, padW);  \
     break
 
 
@@ -378,6 +267,9 @@ void THNN_CudaMinMaxPooling_updateOutput(
             THCCeilDiv(outputHeight, static_cast<int>(block.y)),
             outputTime * inputSlices * batchSize);
 
+  curandState *rand_state;
+  cudaMalloc(&rand_state, sizeof(curandState));
+
   switch (kW)
   {
     UPDATE_OUTPUT_KERNEL_WIDTH(1);
@@ -388,9 +280,10 @@ void THNN_CudaMinMaxPooling_updateOutput(
     UPDATE_OUTPUT_KERNEL_WIDTH(6);
     UPDATE_OUTPUT_KERNEL_WIDTH(7);
     default:
-      cuda_MinMaxPooling_updateOutput<<<grid, block,
-        0, THCState_getCurrentStream(state)>>>(
-        cudaInput, cudaThresholds, cudaMask, cudaIndices, cudaOutput, kT, kH, kW, dT, dH, dW, padT, padH, padW);
+      cuda_MinMaxPooling_updateOutput<<<grid, block, 0, THCState_getCurrentStream(state)>>>(
+          rand_state, cudaInput, cudaThresholds, cudaMask, 
+          cudaIndices, cudaOutput, kT, kH, kW, dT, dH, dW, padT, padH, padW
+          );
   }
 
   THCudaTensor_free(state, input);
@@ -419,11 +312,11 @@ __global__ void cuda_MinMaxPooling_updateGradInput(
     int iFrame  = ((unsigned char*)(idx))[0] + oFrame  * dT - padT;
     int iRow    = ((unsigned char*)(idx))[1] + oRow    * dH - padH;
     int iColumn = ((unsigned char*)(idx))[2] + oColumn * dW - padW;
-    float maskval = mask[slice][iFrame][iRow][iColumn];
-    float maskedGradOutput = gradOutput[slice][oFrame][oRow][oColumn]*maskval;
+    // float maskval = mask[slice][iFrame][iRow][iColumn];
+    // float maskedGradOutput = gradOutput[slice][oFrame][oRow][oColumn]*maskval;
     atomicAdd(&gradInput[slice][iFrame][iRow][iColumn],
-              maskedGradOutput);
-              //gradOutput[slice][oFrame][oRow][oColumn]);
+              // maskedGradOutput);
+              gradOutput[slice][oFrame][oRow][oColumn]);
   }
 }
 
