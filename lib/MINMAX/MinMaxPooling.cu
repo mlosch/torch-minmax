@@ -419,10 +419,11 @@ __global__ void cuda_MinMaxPooling_updateGradInput(
     int iFrame  = ((unsigned char*)(idx))[0] + oFrame  * dT - padT;
     int iRow    = ((unsigned char*)(idx))[1] + oRow    * dH - padH;
     int iColumn = ((unsigned char*)(idx))[2] + oColumn * dW - padW;
-    //float maskval = mask[slice][iFrame][iRow][iColumn];
-    //float maskedGradOutput = gradOutput[slice][oFrame][oRow][oColumn]*maskval;
+    float maskval = mask[slice][iFrame][iRow][iColumn];
+    float maskedGradOutput = gradOutput[slice][oFrame][oRow][oColumn]*maskval;
     atomicAdd(&gradInput[slice][iFrame][iRow][iColumn],
-              gradOutput[slice][oFrame][oRow][oColumn]);
+              maskedGradOutput);
+              //gradOutput[slice][oFrame][oRow][oColumn]);
   }
 }
 
