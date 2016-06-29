@@ -1,7 +1,7 @@
 local MinMaxPooling, parent = torch.class('nn.MinMaxPooling', 'nn.Module')
 local THNN = require 'nn.THNN'
 
-function MinMaxPooling:__init(thresholds, gamma, kT, kW, kH, dT, dW, dH, padT, padW, padH)
+function MinMaxPooling:__init(thresholds, gamma, nFeatures, batchNormed)
   parent.__init(self)
 
   assert(#thresholds == 2 and
@@ -9,20 +9,18 @@ function MinMaxPooling:__init(thresholds, gamma, kT, kW, kH, dT, dW, dH, padT, p
     type(thresholds[2]) == 'table' and
     #thresholds[1] == #thresholds[2])
 
-  dT = dT or kT
-  dW = dW or kW
-  dH = dH or kH
+  self.kT = nFeatures
+  self.kH = 1
+  self.kW = 1
+  self.dT = 1
+  self.dW = 1
+  self.dH = 1
 
-  self.kT = kT
-  self.kH = kH
-  self.kW = kW
-  self.dT = dT
-  self.dW = dW
-  self.dH = dH
+  self.padT = 0
+  self.padW = 0
+  self.padH = 0
 
-  self.padT = padT or 0
-  self.padW = padW or 0
-  self.padH = padH or 0
+  self.batchNormed = batchNormed or false
 
   self.bn_output = torch.Tensor()
 
@@ -102,9 +100,15 @@ function MinMaxPooling:updateOutput(input)
 
   -- only update mean, std and thresholds during training
   if self.train then
-    self:updateMeanStd(input)
-    self.thresholds[1] = torch.add(self.running_mean, -torch.mul(self.running_std, self.gamma))
-    self.thresholds[2] = torch.add(self.running_mean, torch.mul(self.running_std,self.gamma))
+    if not self.batchNormed then
+      self:updateMeanStd(input)
+      self.thresholds[1] = torch.add(self.running_mean, -torch.mul(self.running_std, self.gamma))
+      self.thresholds[2] = torch.add(self.running_mean, torch.mul(self.running_std,self.gamma))
+    else
+      -- batchnorm output is mu(x) == 0 and var(x) == 1
+      self.thresholds[1] = -self.gamma
+      self.thresholds[2] = self.gamma
+    end
   end
 
   self.indices = self.indices or input.new()
