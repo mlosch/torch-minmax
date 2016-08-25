@@ -22,8 +22,6 @@ function MinMaxPooling:__init(thresholds, gamma, nFeatures, batchNormed)
 
   self.batchNormed = batchNormed or false
 
-  self.bn_output = torch.Tensor()
-
   self.gamma = gamma
   self.thresholds = torch.Tensor(thresholds)
   self.mask = torch.Tensor()
@@ -91,23 +89,39 @@ local function makeContiguous(self, input, gradOutput)
   return input, gradOutput
 end
 
+-- function MinMaxPooling:CPU_forward(input)
+--    local input_t = input:transpose(self.dimension,1)
+--    local nel = input_t:nElement() / input_t:size(1)
+--    local nF = input_t:size(1)
+--    input_t = input_t:reshape(input_t:size(1), nel)
+--
+--    local mask = input_t.new():resizeAs(input_t):fill(0)
+--
+--    for i=1,nel do
+--       local min = nF
+--       for k=1,nF-1 do
+--          if --TODO
+--       end
+--    end
+--
+-- end
+
 function MinMaxPooling:updateOutput(input)
   assert(input:size(self.dimension) == self.thresholds:size(2))
 
   input = makeContiguous(self, input)
 
-  self:_lazyInit(input)
-
   -- only update mean, std and thresholds during training
   if self.train then
     if not self.batchNormed then
+      self:_lazyInit(input)
       self:updateMeanStd(input)
       self.thresholds[1] = torch.add(self.running_mean, -torch.mul(self.running_std, self.gamma))
       self.thresholds[2] = torch.add(self.running_mean, torch.mul(self.running_std,self.gamma))
     else
       -- batchnorm output is mu(x) == 0 and var(x) == 1
-      self.thresholds[1] = -self.gamma
-      self.thresholds[2] = self.gamma
+      self.thresholds[1]:fill(-self.gamma)
+      self.thresholds[2]:fill(self.gamma)
     end
   end
 
