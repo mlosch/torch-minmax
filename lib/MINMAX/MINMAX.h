@@ -24,6 +24,17 @@ TH_API void THNN_CudaMinMaxPooling_updateGradInput(
   int dT, int dW, int dH,
   int padT, int padW, int padH);
 
-// void THNN_CudaLateralInhibition_updateOutput(
-//   THCState *state, THCudaTensor *input, THCudaTensor *thresholds,
-//   THCudaTensor *weights, THCudaTensor *output);
+TH_API void THNN_CudaParametricMin_updateOutput(
+  THCState *state,
+  THCudaTensor *input, THCudaTensor *thresholds,
+  THCudaTensor *weights, THCudaTensor *output,
+  THCudaTensor *reliability, THCudaTensor *selection,
+  float slope);
+TH_API void THNN_CudaParametricMin_updateGradInput(
+  THCState *state,
+  THCudaTensor *input,
+  THCudaTensor *thresholds, THCudaTensor *weights,
+  THCudaTensor *reliability, THCudaTensor *selection,
+  THCudaTensor *gradOutput, THCudaTensor *gradInput,
+  THCudaTensor *gradReliability, THCudaTensor *gradSelection,
+  float slope, float scale);
