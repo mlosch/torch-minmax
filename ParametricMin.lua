@@ -39,10 +39,10 @@ function ParametricMin:reset(stdv)
         return torch.uniform(-stdv, stdv)
      end)
   else
-    self.weight = torch.eye(self.nScales)
+    self.W = torch.eye(self.nScales)
     for i=2,self.nScales do
       for j=1,i-1 do
-        self.weight[i][j] = -1
+        self.W[i][j] = -1
       end
     end
   end
@@ -71,9 +71,11 @@ function ParametricMin:updateOutput(input)
   self.reliability = self.reliability or input.new()
   self.selection = self.selection or input.new()
 
+  local W = self.weight or self.W
+
   input.THNN.ParametricMin_updateOutput(
     input:cdata(), self.bias:cdata(),
-    self.weight:cdata(), self.output:cdata(),
+    W:cdata(), self.output:cdata(),
     self.reliability:cdata(), self.selection:cdata(),
     self.slope
   );
@@ -92,9 +94,11 @@ function ParametricMin:backwards(input, gradOutput, scale, gradInput, gradBias, 
 
   if self.recompute_backward then
 
+    local W = self.weight or self.W
+
     input.THNN.ParametricMin_updateGradInput(
       input:cdata(),
-      self.bias:cdata(), self.weight:cdata(),
+      self.bias:cdata(), W:cdata(),
       self.reliability:cdata(), self.selection:cdata(),
       gradOutput:cdata(), gradInput:cdata(),
       self.gradReliability:cdata(), self.gradSelection:cdata(),
@@ -116,13 +120,15 @@ end
 function ParametricMin:accGradParameters(input, gradOutput, scale)
   --self:backwards(input, gradOutput, scale, nil, self.gradBias, self.gradWeight)
   -- for now we update bias and weight here
-  -- local N = input:numel() / self.nScales
-  -- local a = self.gradSelection:transpose(1,2):reshape(self.nScales, N)
-  -- local b = self.reliability:transpose(1,2):reshape(self.nScales, N)
-  -- self.gradWeight:copy(torch.mm(a, b:t())):mul(self.slope*scale)
-  --
-  -- self.gradBias:copy(self.gradReliability:sum(1):sum(3):sum(4):sum(5))
-  -- self.gradBias:mul(-self.slope*self.slope*scale)
+  if self.affine then
+    local N = input:numel() / self.nScales
+    local a = self.gradSelection:transpose(1,2):reshape(self.nScales, N)
+    local b = self.reliability:transpose(1,2):reshape(self.nScales, N)
+    self.gradWeight:copy(torch.mm(a, b:t())):mul(self.slope*scale)
+  end
+
+  self.gradBias:copy(self.gradReliability:sum(1):sum(3):sum(4):sum(5))
+  self.gradBias:mul(-self.slope*self.slope*scale)
   return self.gradBias
 end
 
